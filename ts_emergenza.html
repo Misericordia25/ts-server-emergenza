@@ -199,22 +199,37 @@ if (targa) {
   targaInput.value = targa.toUpperCase();
 }
 
-// --- NUMERO PROGRESSIVO ---
 
+// --- NUMERO PROGRESSIVO (VISIVO) + CODICE TABLET (PER NOMI FILE) ---
 
 const year = new Date().getFullYear();
 const key = "PROGRESSIVO_TS_" + year;
 
-// ultimo progressivo ufficiale
+// ultimo progressivo ufficiale (solo lettura qui)
 const last = parseInt(localStorage.getItem(key) || "0", 10);
 
-// progressivo SOLO VISIVO (non salvato)
+// progressivo SOLO VISIVO (non salvato qui)
 const tempNum = last + 1;
 
-// memorizziamo il temporaneo per dopo
-sessionStorage.setItem('TS_PROGRESSIVO_TEMP', tempNum);
+// lettera tablet inserita dal Presidente in index_impostazioni.html
+const tabletCode = (localStorage.getItem("TABLET_CODE") || "").trim().toUpperCase();
 
-document.getElementById("numero_progressivo").value = tempNum;
+// modalità definitivo (dal localStorage locale)
+const localFlags = JSON.parse(localStorage.getItem("IMPOSTAZIONI_MISERICORDIA_LOCAL") || "{}");
+const isDefinitivo = localFlags.documento_definitivo === true;
+
+// Salviamo SEMPRE il numero proposto (serve al BLOCCO 5)
+sessionStorage.setItem("TS_PROGRESSIVO_TEMP", String(tempNum));
+
+// Salviamo anche il codice tablet (serve al BLOCCO 5 per comporre A3 nei nomi file)
+sessionStorage.setItem("TS_TABLET_CODE", tabletCode);
+
+// Salviamo il flag (serve al BLOCCO 5 per logica test/definitivo)
+sessionStorage.setItem("TS_IS_DEFINITIVO", isDefinitivo ? "1" : "0");
+
+// UI: se NON definitivo, niente progressivo (coerente con nota “test/scuola”)
+document.getElementById("numero_progressivo").value = isDefinitivo ? tempNum : "";
+
 
 // --- DATI ENTE ---
 const raw = localStorage.getItem("IMPOSTAZIONI_MISERICORDIA");
@@ -1774,10 +1789,11 @@ passive:false});
 
 
 
+
 <!-- =====================================================
-     BLOCCO 5 – TS EMERGENZA (EXPORT + DRAFT) – VERSIONE FINALE
-     ✅ PDF  ✅ EXCEL  ✅ DRAFT  ✅ SANIFICAZIONE OK
+     BLOCCO 5 – TS EMERGENZA (EXPORT + DRAFT) – VERSIONE DEFINITIVA
 ===================================================== -->
+
 <section id="modulo_export_finale" style="margin-top:30px;text-align:center;">
   <style>
     #modulo_export_finale button{
@@ -1796,12 +1812,7 @@ passive:false});
   <button type="button" id="btn_ts_pdf">📄 ANTEPRIMA PDF 💾</button>
   <button type="button" id="btn_ts_excel">📊 ANTEPRIMA Excel 💾</button>
   <button type="button" id="btn_ts_draft">💾 SOSPENDI TEMPORANEAMENTE</button>
-
-<button type="button" id="btn_ts_server">📤 CONDIVIDI DOCUMENTI AL SERVER</button>
-
-
-
-
+  <button type="button" id="btn_ts_server">📤 CONDIVIDI DOCUMENTI AL SERVER</button>
 </section>
 
 <!-- LIBRERIE -->
@@ -1812,15 +1823,14 @@ passive:false});
 <script>
 document.addEventListener('DOMContentLoaded', () => {
 
-  /* =====================================================
-     COSTANTI
-  ====================================================== */
+  /* ===================== COSTANTI ===================== */
   const DRAFT_KEY = 'TsEmergenza_DRAFT';
   const FILE_PRE  = 'TsEmergenza';
 
-  /* =====================================================
-     PROGRESSIVO DEFINITIVO
-  ====================================================== */
+  let LAST_PDF_BLOB   = null;
+  let LAST_EXCEL_BLOB = null;
+
+  /* ================= PROGRESSIVO ===================== */
   function confermaProgressivoDefinitivo(){
     const year = new Date().getFullYear();
     const key  = "PROGRESSIVO_TS_" + year;
@@ -1830,9 +1840,7 @@ document.addEventListener('DOMContentLoaded', () => {
     sessionStorage.removeItem('TS_PROGRESSIVO_TEMP');
   }
 
-  /* =====================================================
-     VALIDAZIONE
-  ====================================================== */
+  /* ================= VALIDAZIONE ===================== */
   function controllaCodiciFiscaliAssistiti(){
     const n = parseInt(document.getElementById('numero_assistiti')?.value || '0',10);
     for(let i=1;i<=n;i++){
@@ -1847,276 +1855,195 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   const eseguiConvalida = () => controllaCodiciFiscaliAssistiti();
 
-  /* =====================================================
-     NOME FILE
-  ====================================================== */
-  function getFileNameBase(){
-    const d = document.getElementById('data_servizio')?.value || 'data';
-    const n = document.getElementById('numero_progressivo')?.value || '000';
-    const nome = document.querySelector('input[name="assistito1_nome"]')?.value || 'anonimo';
-    const cct  = document.querySelector('input[name="assistito1_codice"]')?.value || 'NO-CCT';
-    return `${FILE_PRE}_${d}_${n}_${nome}_${cct}`.replace(/[^\w\d]+/g,'_');
+  /* ================= NOME FILE ===================== */
+
+function getFileNameBase(){
+  const d = document.getElementById('data_servizio')?.value || 'data';
+
+  const num    = sessionStorage.getItem("TS_PROGRESSIVO_TEMP") || '0';
+  const tablet = sessionStorage.getItem("TS_TABLET_CODE") || 'X';
+  const isDef  = sessionStorage.getItem("TS_IS_DEFINITIVO") === "1";
+
+  const progressivo = isDef ? (tablet + num) : 'TEST';
+
+  const nome = document.querySelector('[name="assistito1_nome"]')?.value || 'anonimo';
+  const cct  = document.querySelector('[name="assistito1_codice"]')?.value || 'NO-CCT';
+
+  return `${FILE_PRE}_${d}_${progressivo}_${nome}_${cct}`
+    .replace(/[^\w\d]+/g,'_');
+}
+
+
+  /* ================= EXCEL – RIGA UNICA ===================== */
+  function buildExcelRow(){
+    return [{
+      Data: document.getElementById('data_servizio')?.value || '',
+      Numero: document.getElementById('numero_progressivo')?.value || '',
+      Nome: document.querySelector('[name="assistito1_nome"]')?.value || '',
+      Codice_CCT_118_1: document.querySelector('[name="assistito1_codice"]')?.value || '',
+      Codice_CCT_118_2: document.querySelector('[name="assistito2_codice"]')?.value || '',
+      Codice_CCT_118_3: document.querySelector('[name="assistito3_codice"]')?.value || '',
+      KM: document.getElementById('totale_km')?.value || 0
+    }];
   }
 
-  /* =====================================================
-     DRAFT – SALVATAGGIO
-  ====================================================== */
+  /* ================= INVIO SERVER ===================== */
+  async function inviaAlServer(pdfBlob, excelBlob){
+    const toBase64 = blob => new Promise(res=>{
+      const r=new FileReader();
+      r.onload=()=>res(r.result.split(',')[1]);
+      r.readAsDataURL(blob);
+    });
+
+    const payload = {
+      pdf:{ name:`TS_${Date.now()}.pdf`, data:await toBase64(pdfBlob) },
+      excel:{ name:`TS_${Date.now()}.xlsx`, data:await toBase64(excelBlob) }
+    };
+
+    const res = await fetch('/.netlify/functions/upload-drive',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(payload)
+    });
+    if(!res.ok) throw new Error('Upload fallito');
+  }
+
+  /* ================= DRAFT ===================== */
   function raccogliDatiModulo(){
-    const data = {};
+    const data={};
     document.querySelectorAll('input,select,textarea').forEach(el=>{
-      const k = el.name || el.id;
+      const k=el.name||el.id;
       if(!k) return;
-      data[k] = (el.type==='checkbox'||el.type==='radio') ? el.checked : el.value;
+      data[k]=(el.type==='checkbox'||el.type==='radio')?el.checked:el.value;
     });
     document.querySelectorAll('canvas').forEach(c=>{
-      try{ data['canvas_'+(c.id||c.dataset.id)] = c.toDataURL('image/png'); }catch(e){}
+      try{data['canvas_'+(c.id||c.dataset.id)]=c.toDataURL('image/png')}catch(e){}
     });
     return data;
   }
 
-  /* =====================================================
-     CLONE MODULI PER PDF
-  ====================================================== */
-  function cloneModuliPuliti(){
-
-    const container = document.createElement('div');
-    container.style.cssText = 'position:absolute;left:0;top:-4000px;width:210mm;background:#fff';
-
-    document.querySelectorAll('section.modulo').forEach(modulo=>{
-      const clone = modulo.cloneNode(true);
-
-      clone.querySelectorAll(
-        'button,.clear-firma-btn,.remove-btn,.controls,#convalida_wrap,input[type=file],input[type=range]'
-      ).forEach(el=>el.remove());
-
-      /* CANVAS → IMG */
-      const oc = modulo.querySelectorAll('canvas');
-      const cc = clone.querySelectorAll('canvas');
-      oc.forEach((c,i)=>{
-        try{
-          const img=document.createElement('img');
-          img.src=c.toDataURL('image/png');
-          img.style.width=c.getBoundingClientRect().width+'px';
-          cc[i].replaceWith(img);
-        }catch(e){ cc[i]?.remove(); }
-      });
-
-      clone.querySelectorAll('input,select,textarea').forEach(el=>el.disabled=true);
-
-/* 🔹 BLOCCO 1 (ANAGRAFICA): rimuovi riga "Numero Assistiti" nel PDF */
-if (modulo.querySelector('#numero_assistiti')) {
-  const selNumAssistiti = clone.querySelector('#numero_assistiti');
-  if (selNumAssistiti) {
-    const campo = selNumAssistiti.closest('.campo');
-    if (campo) campo.remove();
-  }
-}
-
-/* 🔹 BLOCCO 2: rimuovi NOTE se vuote */
-const noteTextarea = clone.querySelector('textarea[name="note_finali"]');
-if (noteTextarea && !noteTextarea.value.trim()) {
-  const noteBox = noteTextarea.closest('.note-box');
-  if (noteBox) noteBox.remove();
-}
-
-
-      /* MOTIVO PRELIEVO */
-      if(modulo.id==='motivo_prelievo'){
-        const title = clone.querySelector('.titolo-verticale');
-        if(title){
-          const h=document.createElement('div');
-          h.textContent='MOTIVO DEL PRELIEVO';
-          h.style.cssText='text-align:center;font-weight:700;border-bottom:1px solid #000;margin:6px 0';
-          title.replaceWith(h);
-        }
-        const orig=modulo.querySelectorAll('.casella-check');
-        const cl=clone.querySelectorAll('.casella-check');
-        cl.forEach((b,i)=>{ if(!orig[i]?.classList.contains('checked')) b.remove(); });
-      }
-
-      /* RIFIUTO + SANIFICAZIONE */
-
-if (modulo.id === 'rifiuto_ricovero') {
-
-  const orig = modulo;
-  const cloneRows = clone.querySelectorAll('tr.riga-paziente');
-
-  let hasRifiuto = false;
-
-  // 🔹 Gestione RIFIUTO RICOVERO
-  orig.querySelectorAll('tr.riga-paziente').forEach((r,i)=>{
-    const chk = r.querySelector('input[type=checkbox]');
-    if (!chk?.checked) {
-      cloneRows[i]?.remove();
-    } else {
-      hasRifiuto = true;
-    }
-  });
-
-  // 🔹 Gestione SANIFICAZIONE (INDIPENDENTE)
-  const sanMezzo = orig.querySelector('[name="sanificazione_mezzo"]')?.checked;
-  const sanAttr  = orig.querySelector('[name="sanificazione_attrezzature"]')?.checked;
-  const sanRow   = clone.querySelector('tr.riga-sanificazione');
-
-  if (!sanMezzo && !sanAttr) {
-    sanRow?.remove();
-  } else {
-    sanRow?.querySelectorAll('input[type=checkbox]').forEach(c => {
-      if (
-        (c.name === 'sanificazione_mezzo' && !sanMezzo) ||
-        (c.name === 'sanificazione_attrezzature' && !sanAttr)
-      ) {
-        c.closest('label')?.remove();
-      }
-    });
-  }
-
-  // 🔹 Se NON c’è né rifiuto né sanificazione → rimuovi tutto
-  if (!hasRifiuto && !sanMezzo && !sanAttr) {
-    clone.remove();
-    return;
-  }
-}
-
-
-    
-
-      container.appendChild(clone);
-    });
-
-    document.body.appendChild(container);
-    return container;
-  }
-
-  /* =====================================================
-     DRAFT / PDF / EXCEL
-  ====================================================== */
   document.getElementById('btn_ts_draft').onclick=()=>{
     if(!eseguiConvalida())return;
     localStorage.setItem(DRAFT_KEY,JSON.stringify(raccogliDatiModulo()));
     window.location.href='../index.html';
   };
 
+
+
+
+
+
+function cloneModuliPuliti(){
+  const container = document.createElement('div');
+  container.style.cssText = 'position:absolute;left:0;top:-4000px;width:210mm;background:#fff';
+
+  document.querySelectorAll('section.modulo').forEach(modulo=>{
+    const clone = modulo.cloneNode(true);
+
+    // Rimuove elementi non stampabili
+    clone.querySelectorAll(
+      'button,.clear-firma-btn,.remove-btn,.controls,#convalida_wrap,input[type=file],input[type=range]'
+    ).forEach(el=>el.remove());
+
+    // CANVAS → IMG
+    const oc = modulo.querySelectorAll('canvas');
+    const cc = clone.querySelectorAll('canvas');
+    oc.forEach((c,i)=>{
+      try{
+        const img = document.createElement('img');
+        img.src = c.toDataURL('image/png');
+        img.style.width = c.getBoundingClientRect().width + 'px';
+        cc[i].replaceWith(img);
+      }catch(e){
+        cc[i]?.remove();
+      }
+    });
+
+    // Disabilita campi
+    clone.querySelectorAll('input,select,textarea').forEach(el=>el.disabled=true);
+
+    container.appendChild(clone);
+  });
+
+  document.body.appendChild(container);
+  return container;
+}
+
+
+
+
+
+
+
+
+
+
+  /* ================= PDF ===================== */
   document.getElementById('btn_ts_pdf').onclick=async()=>{
     if(!eseguiConvalida())return;
-    confermaProgressivoDefinitivo();
+   
     const cont=cloneModuliPuliti();
     const c=await html2canvas(cont,{scale:4,backgroundColor:'#fff'});
     const pdf=new window.jspdf.jsPDF('p','mm','a4');
     pdf.addImage(c.toDataURL('image/jpeg',1),'JPEG',0,0,210,297);
     pdf.save(getFileNameBase()+'.pdf');
-    cont.remove(); localStorage.removeItem(DRAFT_KEY);
+    cont.remove();
+    localStorage.removeItem(DRAFT_KEY);
   };
 
+  /* ================= EXCEL LOCALE ===================== */
   document.getElementById('btn_ts_excel').onclick=()=>{
     if(!eseguiConvalida())return;
-    confermaProgressivoDefinitivo();
-    const row=[{
-      Data:document.getElementById('data_servizio')?.value||'',
-      Numero:document.getElementById('numero_progressivo')?.value||'',
-      Nome:document.querySelector('[name="assistito1_nome"]')?.value||'',
-
-Codice_CCT_118_1: document.querySelector('input[name="assistito1_codice"]')?.value || '',
-  Codice_CCT_118_2: document.querySelector('input[name="assistito2_codice"]')?.value || '',
-  Codice_CCT_118_3: document.querySelector('input[name="assistito3_codice"]')?.value || '',
-
-      KM:document.getElementById('totale_km')?.value||0
-    }];
+   
     const wb=XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(row),'Dati');
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(buildExcelRow()),'Dati');
     XLSX.writeFile(wb,getFileNameBase()+'.xlsx');
     localStorage.removeItem(DRAFT_KEY);
   };
 
-  /* =====================================================
-     RIPRISTINO DRAFT
-  ====================================================== */
-  const raw=localStorage.getItem(DRAFT_KEY);
-  if(raw){
-    const d=JSON.parse(raw);
-    document.querySelectorAll('input,select,textarea').forEach(el=>{
-      const k=el.name||el.id;
-      if(k in d) el.type==='checkbox'?el.checked=d[k]:el.value=d[k];
-    });
-    document.querySelectorAll('canvas').forEach(c=>{
-      const img=d['canvas_'+(c.id||c.dataset.id)];
-      if(img){
-        const i=new Image();
-        i.onload=()=>c.getContext('2d').drawImage(i,0,0,c.width,c.height);
-        i.src=img;
-      }
-    });
+  /* ================= SERVER ===================== */
+  document.getElementById('btn_ts_server').onclick=async()=>{
+    if(!eseguiConvalida())return;
+
+  // 🔒 BLOCCO SICUREZZA LETTERA TABLET (QUI)
+  const tablet = sessionStorage.getItem("TS_TABLET_CODE");
+  if(!tablet){
+    alert("❌ Lettera tablet mancante. Contattare il Presidente.");
+    return;
   }
 
-});
-</script>
-
-
-<script>
-document.addEventListener('DOMContentLoaded', () => {
-
-  const btnServer = document.getElementById('btn_ts_server');
-  if (!btnServer) return;
-
-  btnServer.addEventListener('click', async () => {
-
-    if (!eseguiConvalida()) return;
     confermaProgressivoDefinitivo();
 
-    btnServer.disabled = true;
-    btnServer.textContent = '⏳ Invio in corso...';
-
-    try {
-
-      /* === 1️⃣ GENERA PDF IN MEMORIA (stesso identico layout) === */
-      const cont = cloneModuliPuliti();
-      const canvas = await html2canvas(cont, { scale:4, backgroundColor:'#fff' });
-      const pdf = new window.jspdf.jsPDF('p','mm','a4');
-      pdf.addImage(canvas.toDataURL('image/jpeg',1),'JPEG',0,0,210,297);
-      const pdfBlob = pdf.output('blob');
+    if(!LAST_PDF_BLOB){
+      const cont=cloneModuliPuliti();
+      const c=await html2canvas(cont,{scale:4,backgroundColor:'#fff'});
+      const pdf=new window.jspdf.jsPDF('p','mm','a4');
+      pdf.addImage(c.toDataURL('image/jpeg',1),'JPEG',0,0,210,297);
+      LAST_PDF_BLOB=pdf.output('blob');
       cont.remove();
-
-      /* === 2️⃣ GENERA EXCEL IN MEMORIA === */
-      const row=[{
-        Data:document.getElementById('data_servizio')?.value||'',
-        Numero:document.getElementById('numero_progressivo')?.value||'',
-        Nome:document.querySelector('[name="assistito1_nome"]')?.value||'',
-        KM:document.getElementById('totale_km')?.value||0
-      }];
-
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(row),'Dati');
-      const excelBlob = new Blob(
-        [XLSX.write(wb,{bookType:'xlsx',type:'array'})],
-        { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }
-      );
-
-      /* === 3️⃣ INVIO AL SERVER === */
-      const fd = new FormData();
-      const baseName = getFileNameBase();
-
-      fd.append('pdf',   pdfBlob,   baseName + '.pdf');
-      fd.append('excel', excelBlob, baseName + '.xlsx');
-      fd.append('tipo', 'TS_EMERGENZA');
-
-      const res = await fetch('/upload-ts', {
-        method: 'POST',
-        body: fd
-      });
-
-      if (!res.ok) throw new Error('Errore server');
-
-      alert('✅ Documenti caricati correttamente sul server');
-
-    } catch (e) {
-      console.error(e);
-      alert('❌ Errore durante il caricamento');
     }
 
-    btnServer.disabled = false;
-    btnServer.textContent = '📤 CONDIVIDI DOCUMENTI AL SERVER';
+    if(!LAST_EXCEL_BLOB){
+      const wb=XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(buildExcelRow()),'Dati');
+      LAST_EXCEL_BLOB=new Blob(
+        [XLSX.write(wb,{bookType:'xlsx',type:'array'})],
+        {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}
+      );
+    }
 
-  });
+await inviaAlServer(LAST_PDF_BLOB,LAST_EXCEL_BLOB);
 
+alert('✅ Documenti caricati correttamente sul server');
+
+// 🔚 chiusura ciclo: ritorno pagina ponte
+window.location.href = '../index.html';
+
+  };
 });
+
+   
 </script>
+
+
+    
