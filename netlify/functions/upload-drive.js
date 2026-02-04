@@ -1,8 +1,6 @@
 const { google } = require("googleapis");
 const nodemailer = require("nodemailer");
-
 const { Readable } = require("stream");
-
 
 /* =====================================================
    ROOT DRIVE PER SOCIETÀ
@@ -24,22 +22,29 @@ async function getOrCreateFolder(drive, name, parentId) {
     `trashed=false`
   ].join(" and ");
 
-  const res = await drive.files.list({
-    q,
-    fields: "files(id,name)",
-    spaces: "drive"
-  });
+ const res = await drive.files.list({
+  q,
+  fields: "files(id,name)",
+  spaces: "drive",
+  includeItemsFromAllDrives: true,
+  supportsAllDrives: true
+});
+
+  
 
   if (res.data.files.length) return res.data.files[0].id;
 
+ 
   const folder = await drive.files.create({
-    requestBody: {
-      name,
-      mimeType: "application/vnd.google-apps.folder",
-      parents: [parentId]
-    },
-    fields: "id"
-  });
+  requestBody: {
+    name,
+    mimeType: "application/vnd.google-apps.folder",
+    parents: [parentId]
+  },
+  fields: "id",
+  supportsAllDrives: true
+});
+
 
   return folder.data.id;
 }
@@ -116,10 +121,10 @@ exports.handler = async (event) => {
           requestBody: { name: pdf.name, parents: [parentId] },
           media: {
             mimeType: "application/pdf",
-           body: Readable.from(Buffer.from(pdf.data, "base64"))
-
+            body: Readable.from(Buffer.from(pdf.data, "base64"))
           },
-          fields: "id"
+          fields: "id",
+supportsAllDrives: true
         });
         pdfLink = `https://drive.google.com/file/d/${resPdf.data.id}/view`;
       }
@@ -130,10 +135,10 @@ exports.handler = async (event) => {
           media: {
             mimeType:
               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-           body: Readable.from(Buffer.from(excel.data, "base64"))
-
+            body: Readable.from(Buffer.from(excel.data, "base64"))
           },
-          fields: "id"
+          fields: "id",
+supportsAllDrives: true
         });
         excelLink = `https://drive.google.com/file/d/${resXls.data.id}/view`;
       }
@@ -161,7 +166,10 @@ exports.handler = async (event) => {
       });
     }
 
-    let text = `Documento: ${modulo}\nSocietà: ${societa}\nData: ${data_servizio}\n`;
+    let text =
+      `Documento: ${modulo}\n` +
+      `Società: ${societa}\n` +
+      `Data: ${data_servizio}\n`;
 
     if (deposito_drive === true) {
       if (pdfLink)   text += `\nPDF su Drive: ${pdfLink}`;
