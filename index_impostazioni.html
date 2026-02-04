@@ -224,24 +224,30 @@ function cambiaPin(){
 /* ==========================
    LOAD
 =========================== */
-window.onload = () => {
-  if(localStorage.getItem(ADMIN_UNLOCK)==="1") mostraAdmin();
 
-  codice_societa.value = localStorage.getItem("CODICE_SOCIETA") || "";
-  tablet_code.value = localStorage.getItem(TABLET_CODE_KEY) || "";
+window.addEventListener("DOMContentLoaded", () => {
+  setTimeout(caricaDatiEnte, 100);
+});
 
-  const raw = localStorage.getItem(LS_KEY_PLAIN);
-  const local = JSON.parse(localStorage.getItem(LS_KEY_LOCAL) || "{}");
+function caricaDatiEnte(){
+  const raw = localStorage.getItem("IMPOSTAZIONI_MISERICORDIA");
+  const local = JSON.parse(localStorage.getItem("IMPOSTAZIONI_MISERICORDIA_LOCAL") || "{}");
 
-  if(raw){
+  if(!raw) return;
+
+  try{
     const cfg = JSON.parse(raw);
-    ente_nome.value  = cfg.ente?.nome || "";
-    ente_citta.value = cfg.ente?.citta || "";
-    ente_via.value   = cfg.ente?.via || "";
-    ente_civico.value= cfg.ente?.civico || "";
-    ente_tel.value   = cfg.ente?.tel || "";
-    mail_to.value    = cfg.mail?.to || "";
+
+    ente_nome.value   = cfg.ente?.nome   || "";
+    ente_citta.value  = cfg.ente?.citta  || "";
+    ente_via.value    = cfg.ente?.via    || "";
+    ente_civico.value = cfg.ente?.civico || "";
+    ente_tel.value    = cfg.ente?.tel    || "";
+    mail_to.value     = cfg.mail?.to     || "";
+
     documento_definitivo.checked = local.documento_definitivo === true;
+  }catch(e){
+    console.error("Errore parsing impostazioni:", e);
   }
 };
 
