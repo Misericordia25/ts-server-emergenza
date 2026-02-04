@@ -1,6 +1,9 @@
 const { google } = require("googleapis");
 const nodemailer = require("nodemailer");
 
+const { Readable } = require("stream");
+
+
 /* =====================================================
    ROOT DRIVE PER SOCIETÀ
 ===================================================== */
@@ -90,12 +93,11 @@ exports.handler = async (event) => {
     ===================================================== */
     let drive = null;
     if (deposito_drive === true) {
-     const auth = new google.auth.JWT({
-  email: process.env.GCP_CLIENT_EMAIL,
-  key: process.env.GCP_PRIVATE_KEY.replace(/\\n/g, "\n"),
-  scopes: ["https://www.googleapis.com/auth/drive"]
-});
-
+      const auth = new google.auth.JWT({
+        email: process.env.GCP_CLIENT_EMAIL,
+        key: process.env.GCP_PRIVATE_KEY.replace(/\\n/g, "\n"),
+        scopes: ["https://www.googleapis.com/auth/drive"]
+      });
 
       drive = google.drive({ version: "v3", auth });
     }
@@ -114,7 +116,8 @@ exports.handler = async (event) => {
           requestBody: { name: pdf.name, parents: [parentId] },
           media: {
             mimeType: "application/pdf",
-            body: Buffer.from(pdf.data, "base64")
+           body: Readable.from(Buffer.from(pdf.data, "base64"))
+
           },
           fields: "id"
         });
@@ -127,7 +130,8 @@ exports.handler = async (event) => {
           media: {
             mimeType:
               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            body: Buffer.from(excel.data, "base64")
+           body: Readable.from(Buffer.from(excel.data, "base64"))
+
           },
           fields: "id"
         });
