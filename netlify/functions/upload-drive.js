@@ -76,7 +76,7 @@ exports.handler = async (event) => {
       modulo,
       tipo,               // "TS" | "CHECKLIST"
       data_servizio,      // YYYY-MM-DD
-      deposito_drive,     // true | false  (FLAG UNICO DEFINITIVO)
+      deposito_drive,     // true | false
       email,              // { to:[], cc:[] }
       pdf,                // { name, data(base64) }
       excel               // opzionale (TS)
@@ -86,23 +86,22 @@ exports.handler = async (event) => {
       throw new Error("Parametri obbligatori mancanti");
 
     /* =====================================================
-       AUTH GOOGLE (usata SOLO se deposito_drive === true)
+       AUTH GOOGLE (solo se deposito_drive === true)
     ===================================================== */
     let drive = null;
     if (deposito_drive === true) {
-     const creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
-
-const auth = new google.auth.JWT({
-  email: creds.client_email,
-  key: creds.private_key,
+     const auth = new google.auth.JWT({
+  email: process.env.GCP_CLIENT_EMAIL,
+  key: process.env.GCP_PRIVATE_KEY.replace(/\\n/g, "\n"),
   scopes: ["https://www.googleapis.com/auth/drive"]
 });
+
 
       drive = google.drive({ version: "v3", auth });
     }
 
     /* =====================================================
-       UPLOAD DRIVE (SOLO SE DEFINITIVO)
+       UPLOAD DRIVE (solo se DEFINITIVO)
     ===================================================== */
     let pdfLink = null;
     let excelLink = null;
@@ -149,7 +148,7 @@ const auth = new google.auth.JWT({
       }
     });
 
-    // Allegati: SOLO checklist (sempre), TS mai
+    // Allegati: SOLO checklist
     const attachments = [];
     if (tipo === "CHECKLIST" && pdf) {
       attachments.push({
