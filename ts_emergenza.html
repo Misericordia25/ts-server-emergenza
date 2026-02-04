@@ -1887,26 +1887,38 @@ function getFileNameBase(){
     }];
   }
 
+  
   /* ================= INVIO SERVER ===================== */
-  async function inviaAlServer(pdfBlob, excelBlob){
-    const toBase64 = blob => new Promise(res=>{
-      const r=new FileReader();
-      r.onload=()=>res(r.result.split(',')[1]);
-      r.readAsDataURL(blob);
-    });
+async function inviaAlServer(pdfBlob, excelBlob, payload){
 
-    const payload = {
-      pdf:{ name:`TS_${Date.now()}.pdf`, data:await toBase64(pdfBlob) },
-      excel:{ name:`TS_${Date.now()}.xlsx`, data:await toBase64(excelBlob) }
-    };
+  const toBase64 = blob => new Promise(res=>{
+    const r = new FileReader();
+    r.onload = () => res(r.result.split(',')[1]);
+    r.readAsDataURL(blob);
+  });
 
-    const res = await fetch('/.netlify/functions/upload-drive',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify(payload)
-    });
-    if(!res.ok) throw new Error('Upload fallito');
-  }
+  // ➕ AGGIUNGI pdf / excel AL payload ESISTENTE
+  payload.pdf = {
+    name: getFileNameBase() + ".pdf",
+    data: await toBase64(pdfBlob)
+  };
+
+  payload.excel = excelBlob ? {
+    name: getFileNameBase() + ".xlsx",
+    data: await toBase64(excelBlob)
+  } : null;
+
+  console.log("PAYLOAD FINALE INVIATO", payload);
+
+  const res = await fetch('/.netlify/functions/upload-drive',{
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(payload)
+  });
+
+  if(!res.ok) throw new Error('Upload fallito');
+}
+
 
   /* ================= DRAFT ===================== */
   function raccogliDatiModulo(){
@@ -2032,7 +2044,27 @@ function cloneModuliPuliti(){
       );
     }
 
-await inviaAlServer(LAST_PDF_BLOB,LAST_EXCEL_BLOB);
+// ================= PAYLOAD CONTESTO =================
+const societa = localStorage.getItem("msa_societa"); // es: MIS_OSIMO
+const data_servizio =
+  document.getElementById("data_servizio")?.value ||
+  new Date().toISOString().slice(0,10);
+
+const payload = {
+  societa,
+  modulo: "TS_EMERGENZA",
+  tipo: "TS",
+  data_servizio,
+  deposito_drive: true
+};
+
+// DEBUG
+console.log("UPLOAD CONTEXT", payload);
+window.__lastUploadPayload = payload;
+
+// INVIO
+await inviaAlServer(LAST_PDF_BLOB, LAST_EXCEL_BLOB, payload);
+
 
 alert('✅ Documenti caricati correttamente sul server');
 
