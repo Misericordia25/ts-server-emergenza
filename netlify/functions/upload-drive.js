@@ -90,12 +90,14 @@ exports.handler = async (event) => {
     ===================================================== */
     let drive = null;
     if (deposito_drive === true) {
-      const auth = new google.auth.JWT(
-        process.env.GCP_CLIENT_EMAIL,
-        null,
-        process.env.GCP_PRIVATE_KEY.replace(/\\n/g, "\n"),
-        ["https://www.googleapis.com/auth/drive"]
-      );
+     const creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
+
+const auth = new google.auth.JWT({
+  email: creds.client_email,
+  key: creds.private_key,
+  scopes: ["https://www.googleapis.com/auth/drive"]
+});
+
       drive = google.drive({ version: "v3", auth });
     }
 
