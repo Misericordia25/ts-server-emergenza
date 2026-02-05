@@ -1,9 +1,24 @@
+/**
+ * upload-drive.js (Netlify Function)
+ * - Upload PDF/Excel su Drive (OAuth utente app.misericordia25)
+ * - Crea albero: ROOT / ANNO / MODULO / MESE
+ * - Invia email (Nodemailer)
+ *
+ * ENV richieste:
+ *   GOOGLE_CLIENT_ID
+ *   GOOGLE_CLIENT_SECRET
+ *   GOOGLE_REFRESH_TOKEN
+ *   MAIL_USER
+ *   MAIL_PWD
+ */
+
 const { google } = require("googleapis");
 const nodemailer = require("nodemailer");
 const { Readable } = require("stream");
 
 /* =====================================================
-   ROOT DRIVE PER SOCIETÀ
+   ROOT DRIVE PER SOCIETÀ (ID CARTELLE ROOT)
+   - Montegiorgio e Grottammare verificati coi link forniti
 ===================================================== */
 const ROOTS = {
   MIS_OSIMO: "1bsPNJ2BFJIP9Q3WwDSVNy32u-Qu2qMjr",
@@ -12,48 +27,66 @@ const ROOTS = {
 };
 
 /* =====================================================
+   AUTH OAUTH (UTENTE REALE)
+===================================================== */
+function getOAuthClient() {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
+
+  if (!clientId || !clientSecret || !refreshToken) {
+    throw new Error(
+      "ENV mancanti per OAuth: GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REFRESH_TOKEN"
+    );
+  }
+
+  const oAuth2Client = new google.auth.OAuth2(
+    clientId,
+    clientSecret,
+    "urn:ietf:wg:oauth:2.0:oob"
+  );
+
+  oAuth2Client.setCredentials({ refresh_token: refreshToken });
+  return oAuth2Client;
+}
+
+/* =====================================================
    UTILS DRIVE
 ===================================================== */
 async function getOrCreateFolder(drive, name, parentId) {
+  const safeName = String(name).replace(/'/g, "\\'");
+
   const q = [
     `'${parentId}' in parents`,
     `mimeType='application/vnd.google-apps.folder'`,
-    `name='${name}'`,
+    `name='${safeName}'`,
     `trashed=false`
   ].join(" and ");
 
- const res = await drive.files.list({
-  q,
-  fields: "files(id,name)",
-  spaces: "drive",
-  includeItemsFromAllDrives: true,
-  supportsAllDrives: true
-});
+  const res = await drive.files.list({
+    q,
+    fields: "files(id,name)"
+  });
 
-  
+  if (res.data.files && res.data.files.length) return res.data.files[0].id;
 
-  if (res.data.files.length) return res.data.files[0].id;
-
- 
   const folder = await drive.files.create({
-  requestBody: {
-    name,
-    mimeType: "application/vnd.google-apps.folder",
-    parents: [parentId]
-  },
-  fields: "id",
-  supportsAllDrives: true
-});
-
+    requestBody: {
+      name,
+      mimeType: "application/vnd.google-apps.folder",
+      parents: [parentId]
+    },
+    fields: "id"
+  });
 
   return folder.data.id;
 }
 
 function meseFolder(data) {
   const mesi = [
-    "01_GENNAIO","02_FEBBRAIO","03_MARZO","04_APRILE",
-    "05_MAGGIO","06_GIUGNO","07_LUGLIO","08_AGOSTO",
-    "09_SETTEMBRE","10_OTTOBRE","11_NOVEMBRE","12_DICEMBRE"
+    "01_GENNAIO", "02_FEBBRAIO", "03_MARZO", "04_APRILE",
+    "05_MAGGIO", "06_GIUGNO", "07_LUGLIO", "08_AGOSTO",
+    "09_SETTEMBRE", "10_OTTOBRE", "11_NOVEMBRE", "12_DICEMBRE"
   ];
   return mesi[new Date(data).getMonth()];
 }
@@ -66,10 +99,19 @@ async function buildTree(drive, societa, modulo, data) {
   const mese = meseFolder(data);
 
   const annoId = await getOrCreateFolder(drive, anno, rootId);
-  const modId  = await getOrCreateFolder(drive, modulo, annoId);
+  const modId = await getOrCreateFolder(drive, modulo, annoId);
   const meseId = await getOrCreateFolder(drive, mese, modId);
 
   return meseId;
+}
+
+function toDriveViewLink(fileId) {
+  return `https://drive.google.com/file/d/${fileId}/view`;
+}
+
+function bufferFromBase64(b64, label = "file") {
+  if (!b64 || typeof b64 !== "string") throw new Error(`${label} base64 mancante`);
+  return Buffer.from(b64, "base64");
 }
 
 /* =====================================================
@@ -90,25 +132,21 @@ exports.handler = async (event) => {
       excel               // opzionale (TS)
     } = JSON.parse(event.body);
 
-    if (!societa || !modulo || !tipo || !data_servizio)
-      throw new Error("Parametri obbligatori mancanti");
+    if (!societa || !modulo || !tipo || !data_servizio) {
+      throw new Error("Parametri obbligatori mancanti (societa/modulo/tipo/data_servizio)");
+    }
 
     /* =====================================================
-       AUTH GOOGLE (solo se deposito_drive === true)
+       DRIVE (solo se deposito_drive === true)
     ===================================================== */
     let drive = null;
     if (deposito_drive === true) {
-      const auth = new google.auth.JWT({
-        email: process.env.GCP_CLIENT_EMAIL,
-        key: process.env.GCP_PRIVATE_KEY.replace(/\\n/g, "\n"),
-        scopes: ["https://www.googleapis.com/auth/drive"]
-      });
-
+      const auth = getOAuthClient();
       drive = google.drive({ version: "v3", auth });
     }
 
     /* =====================================================
-       UPLOAD DRIVE (solo se DEFINITIVO)
+       UPLOAD DRIVE
     ===================================================== */
     let pdfLink = null;
     let excelLink = null;
@@ -121,26 +159,23 @@ exports.handler = async (event) => {
           requestBody: { name: pdf.name, parents: [parentId] },
           media: {
             mimeType: "application/pdf",
-            body: Readable.from(Buffer.from(pdf.data, "base64"))
+            body: Readable.from(bufferFromBase64(pdf.data, "PDF"))
           },
-          fields: "id",
-supportsAllDrives: true
+          fields: "id"
         });
-        pdfLink = `https://drive.google.com/file/d/${resPdf.data.id}/view`;
+        pdfLink = toDriveViewLink(resPdf.data.id);
       }
 
       if (tipo === "TS" && excel) {
         const resXls = await drive.files.create({
           requestBody: { name: excel.name, parents: [parentId] },
           media: {
-            mimeType:
-              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            body: Readable.from(Buffer.from(excel.data, "base64"))
+            mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            body: Readable.from(bufferFromBase64(excel.data, "Excel"))
           },
-          fields: "id",
-supportsAllDrives: true
+          fields: "id"
         });
-        excelLink = `https://drive.google.com/file/d/${resXls.data.id}/view`;
+        excelLink = toDriveViewLink(resXls.data.id);
       }
     }
 
@@ -157,12 +192,12 @@ supportsAllDrives: true
       }
     });
 
-    // Allegati: SOLO checklist
+    // Allegati: SOLO checklist (come da tua logica originale)
     const attachments = [];
     if (tipo === "CHECKLIST" && pdf) {
       attachments.push({
         filename: pdf.name,
-        content: Buffer.from(pdf.data, "base64")
+        content: bufferFromBase64(pdf.data, "PDF")
       });
     }
 
@@ -172,7 +207,7 @@ supportsAllDrives: true
       `Data: ${data_servizio}\n`;
 
     if (deposito_drive === true) {
-      if (pdfLink)   text += `\nPDF su Drive: ${pdfLink}`;
+      if (pdfLink) text += `\nPDF su Drive: ${pdfLink}`;
       if (excelLink) text += `\nExcel su Drive: ${excelLink}`;
     } else {
       text += `\nModalità TEST / SCUOLA (nessun deposito su Drive)`;
@@ -201,7 +236,10 @@ supportsAllDrives: true
     console.error("UPLOAD ERROR:", err);
     return {
       statusCode: 500,
-      body: JSON.stringify({ success: false, error: err.message })
+      body: JSON.stringify({
+        success: false,
+        error: err.message || String(err)
+      })
     };
   }
 };
