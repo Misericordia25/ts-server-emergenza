@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+DOCTYPE html>
 <html lang="it">
 <head>
 <meta charset="UTF-8">
@@ -212,11 +212,21 @@ section.modulo{
 
 <script src="js/load-config.js"></script>
 
+
 <script>
 /* ==========================
    AUTO-COMPILAZIONE
 ========================== */
-document.getElementById("data_servizio").valueAsDate = new Date();
+
+const dataInput = document.getElementById('data_servizio');
+
+// Imposta la data SOLO se NON esiste un TS sospeso
+if (!localStorage.getItem('TsEmergenza_DRAFT')) {
+  dataInput.value = new Date().toISOString().slice(0,10);
+}
+
+
+
 
 // --- TARGA AUTO ---
 const targaInput = document.getElementById("targa");
@@ -1822,6 +1832,9 @@ passive:false});
 
 
 
+
+
+
 <!-- =====================================================
      BLOCCO 5 – TS EMERGENZA (EXPORT + DRAFT) – VERSIONE DEFINITIVA
 ===================================================== -->
@@ -1862,6 +1875,50 @@ document.addEventListener('DOMContentLoaded', () => {
   let LAST_PDF_BLOB   = null;
   let LAST_EXCEL_BLOB = null;
 
+  /* ================= RIPRISTINO DRAFT ===================== */
+  const draftRaw = localStorage.getItem(DRAFT_KEY);
+
+  if (draftRaw) {
+    try {
+      const draft = JSON.parse(draftRaw);
+      console.log("🔁 RIPRISTINO TS DRAFT", draft);
+
+      // Ripopola input / select / textarea
+      document.querySelectorAll('input,select,textarea').forEach(el=>{
+        const k = el.name || el.id;
+        if (!k || draft[k] === undefined) return;
+
+        if (el.type === 'checkbox' || el.type === 'radio') {
+          el.checked = !!draft[k];
+        } else {
+          el.value = draft[k];
+        }
+      });
+
+      // Ripristina canvas firme
+     document.querySelectorAll('canvas').forEach(c=>{
+  const key = 'canvas_' + (c.id || c.dataset.id);
+  if (!draft[key]) return;
+
+  const img = new Image();
+  img.onload = () => {
+    // aspetta il layout finale
+    requestAnimationFrame(() => {
+      const ctx = c.getContext('2d');
+      ctx.clearRect(0, 0, c.width, c.height);
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+    });
+  };
+  img.src = draft[key];
+});
+
+    } catch (e) {
+      console.error("❌ Errore ripristino draft TS", e);
+    }
+  }
+
+
+
   /* ================= PROGRESSIVO ===================== */
   function confermaProgressivoDefinitivo(){
     const year = new Date().getFullYear();
@@ -1890,7 +1947,11 @@ document.addEventListener('DOMContentLoaded', () => {
   /* ================= NOME FILE ===================== */
 
 function getFileNameBase(){
-  const d = document.getElementById('data_servizio')?.value || 'data';
+  const d =
+    document.getElementById('data_servizio')?.value ||
+    new Date().toISOString().slice(0,10);
+
+
 
   const num    = sessionStorage.getItem("TS_PROGRESSIVO_TEMP") || '0';
   const tablet = sessionStorage.getItem("TS_TABLET_CODE") || 'X';
@@ -1978,6 +2039,44 @@ async function inviaAlServer(pdfBlob, excelBlob, payload){
 
 
 
+function applicaPuliziaPDF(root){
+
+  // 1️⃣ Rimuove righe assistiti completamente vuote
+  root.querySelectorAll('.riga-paziente').forEach(riga=>{
+    const hasValue = [...riga.querySelectorAll('input,select,textarea,canvas')]
+      .some(el=>{
+        if(el.tagName === 'CANVAS') return el.toDataURL().length > 2000;
+        if(el.type === 'checkbox' || el.type === 'radio') return el.checked;
+        return el.value && el.value.trim() !== '';
+      });
+
+    if(!hasValue) riga.remove();
+  });
+
+  // 2️⃣ Rimuove blocchi rifiuto ricovero non spuntati
+  root.querySelectorAll('.rifiuto-firma-wrap').forEach(blocco=>{
+    const check = blocco.querySelector('input[type="checkbox"]');
+    if(check && !check.checked) blocco.remove();
+  });
+
+  // 3️⃣ Rimuove sanificazione se totalmente vuota
+  const san = root.querySelector('.riga-sanificazione');
+  if(san){
+    const hasSan = [...san.querySelectorAll('input,canvas')]
+      .some(el=>{
+        if(el.tagName === 'CANVAS') return el.toDataURL().length > 2000;
+        if(el.type === 'checkbox') return el.checked;
+        return el.value && el.value.trim() !== '';
+      });
+    if(!hasSan) san.remove();
+  }
+}
+
+
+
+
+
+
 
 
 function cloneModuliPuliti(){
@@ -1985,7 +2084,12 @@ function cloneModuliPuliti(){
   container.style.cssText = 'position:absolute;left:0;top:-4000px;width:210mm;background:#fff';
 
   document.querySelectorAll('section.modulo').forEach(modulo=>{
-    const clone = modulo.cloneNode(true);
+
+const clone = modulo.cloneNode(true);
+
+applicaPuliziaPDF(clone);
+
+   
 
     // Rimuove elementi non stampabili
     clone.querySelectorAll(
@@ -2111,6 +2215,3 @@ window.location.href = '../index.html';
 
    
 </script>
-
-
-    
