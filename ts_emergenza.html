@@ -225,9 +225,6 @@ if (!localStorage.getItem('TsEmergenza_DRAFT')) {
   dataInput.value = new Date().toISOString().slice(0,10);
 }
 
-
-
-
 // --- TARGA AUTO ---
 const targaInput = document.getElementById("targa");
 let targa = localStorage.getItem("TARGA_VEICOLO");
@@ -397,13 +394,6 @@ function validaCF(input,i){
   }
 }
 </script>
-
-
-
-
-
-
-
 <section id="fasi-trasporto" class="modulo" style="margin-top:24px;">
   <style>
     /* Scoping locale: non inquina altri stili */
@@ -971,19 +961,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
 });
 </script>
-
-
-
-
-
-
-
-
-
-
-
-
-
 <section id="equipaggio" class="modulo" style="margin-top:24px;">
   <style>
     #equipaggio .titolo {
@@ -1265,15 +1242,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
 });
 </script>
-
-
-
-
-
-
-
-
-
 <section id="motivo_prelievo" class="modulo" style="margin-top:24px;">
   <style>
     #motivo_prelievo .container {
@@ -1427,17 +1395,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 </script>
-
-
-
-
-
-
-
-
-
-
-
 
 <section id="rifiuto_ricovero" class="modulo" style="margin-top:24px;">
   <style>
@@ -1825,16 +1782,6 @@ passive:false});
 });
 </script>
 
-
-
-
-
-
-
-
-
-
-
 <!-- =====================================================
      BLOCCO 5 – TS EMERGENZA (EXPORT + DRAFT) – VERSIONE DEFINITIVA
 ===================================================== -->
@@ -2042,9 +1989,6 @@ async function inviaAlServer(pdfBlob, excelBlob, payload){
     window.location.href='../index.html';
   };
 
-
-
-
 function applicaPuliziaPDF(root){
 
   // 1️⃣ Rimuove righe assistiti completamente vuote
@@ -2077,13 +2021,6 @@ function applicaPuliziaPDF(root){
     if(!hasSan) san.remove();
   }
 }
-
-
-
-
-
-
-
 
 function cloneModuliPuliti(){
   const container = document.createElement('div');
@@ -2125,15 +2062,6 @@ applicaPuliziaPDF(clone);
   document.body.appendChild(container);
   return container;
 }
-
-
-
-
-
-
-
-
-
 
   /* ================= PDF ===================== */
   document.getElementById('btn_ts_pdf').onclick=async()=>{
@@ -2217,5 +2145,5 @@ alert('✅ Documenti caricati correttamente sul server');
 window.location.href = '../index.html';
 
   };
-   
+});   
 </script>
