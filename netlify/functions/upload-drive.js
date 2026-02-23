@@ -50,10 +50,7 @@ function meseFolder(data) {
   return mesi[new Date(data).getMonth()];
 }
 
-/* =====================================================
-   BUILD TREE DEFINITIVA
-===================================================== */
-async function buildTree(drive, societa, modulo, data, tipo) {
+async function buildTree(drive, societa, modulo, tipo, data) {
   const rootId = ROOTS[societa];
   if (!rootId) throw new Error("Società non riconosciuta");
 
@@ -61,27 +58,26 @@ async function buildTree(drive, societa, modulo, data, tipo) {
   const mese = meseFolder(data);
 
   const annoId = await getOrCreateFolder(drive, anno, rootId);
+  const modId  = await getOrCreateFolder(drive, modulo, annoId);
+  const meseId = await getOrCreateFolder(drive, mese, modId);
 
-  /* ============================
-     CHECKLIST → unica cartella
-  ============================ */
-  if (tipo === "CHECKLIST") {
-    const checkRoot = await getOrCreateFolder(drive, "CHECKLIST", annoId);
-    const meseId = await getOrCreateFolder(drive, mese, checkRoot);
-    return { pdfFolder: meseId, excelFolder: null };
+  // 👉 CASO TS
+  if (tipo === "TS") {
+    const pdfFolderId   = await getOrCreateFolder(drive, "PDF", meseId);
+    const excelFolderId = await getOrCreateFolder(drive, "EXCEL", meseId);
+
+    return {
+      pdfFolderId,
+      excelFolderId
+    };
   }
 
-  /* ============================
-     TS → cartelle separate
-  ============================ */
-  const tsRoot = await getOrCreateFolder(drive, modulo, annoId);
-  const meseId = await getOrCreateFolder(drive, mese, tsRoot);
-
-  const pdfFolder = await getOrCreateFolder(drive, "PDF", meseId);
-  const excelFolder = await getOrCreateFolder(drive, "EXCEL", meseId);
-
-  return { pdfFolder, excelFolder };
+  // 👉 CASO CHECKLIST
+  return {
+    pdfFolderId: meseId
+  };
 }
+
 
 /* =====================================================
    HANDLER
@@ -93,19 +89,19 @@ exports.handler = async (event) => {
     const {
       societa,
       modulo,
-      tipo,
-      data_servizio,
-      deposito_drive,
-      email,
-      pdf,
-      excel
+      tipo,               // "TS" | "CHECKLIST"
+      data_servizio,      // YYYY-MM-DD
+      deposito_drive,     // true | false  (FLAG UNICO DEFINITIVO)
+      email,              // { to:[], cc:[] }
+      pdf,                // { name, data(base64) }
+      excel               // opzionale (TS)
     } = JSON.parse(event.body);
 
     if (!societa || !modulo || !tipo || !data_servizio)
       throw new Error("Parametri obbligatori mancanti");
 
     /* =====================================================
-       AUTH GOOGLE (vecchio flusso stabile)
+       AUTH GOOGLE (usata SOLO se deposito_drive === true)
     ===================================================== */
     let drive = null;
     if (deposito_drive === true) {
@@ -119,19 +115,24 @@ exports.handler = async (event) => {
     }
 
     /* =====================================================
-       UPLOAD DRIVE (vecchio flusso + nuova struttura)
+       UPLOAD DRIVE (SOLO SE DEFINITIVO)
     ===================================================== */
     let pdfLink = null;
     let excelLink = null;
 
     if (deposito_drive === true && drive) {
-      const { pdfFolder, excelFolder } =
-        await buildTree(drive, societa, modulo, data_servizio, tipo);
+     const folders = await buildTree(
+  drive,
+  societa,
+  modulo,
+  tipo,
+  data_servizio
+);
 
-      /* --- PDF --- */
-      if (pdf && pdfFolder) {
+      if (pdf) {
         const resPdf = await drive.files.create({
-          requestBody: { name: pdf.name, parents: [pdfFolder] },
+requestBody: { name: pdf.name, parents: [folders.pdfFolderId] },
+
           media: {
             mimeType: "application/pdf",
             body: Buffer.from(pdf.data, "base64")
@@ -141,10 +142,9 @@ exports.handler = async (event) => {
         pdfLink = `https://drive.google.com/file/d/${resPdf.data.id}/view`;
       }
 
-      /* --- EXCEL (solo TS) --- */
-      if (tipo === "TS" && excel && excelFolder) {
+      if (tipo === "TS" && excel) {
         const resXls = await drive.files.create({
-          requestBody: { name: excel.name, parents: [excelFolder] },
+requestBody: { name: excel.name, parents: [folders.excelFolderId] },
           media: {
             mimeType:
               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -157,7 +157,7 @@ exports.handler = async (event) => {
     }
 
     /* =====================================================
-       INVIO EMAIL (identico)
+       INVIO EMAIL
     ===================================================== */
     const transporter = nodemailer.createTransport({
       host: "smtp.gmail.com",
@@ -169,6 +169,7 @@ exports.handler = async (event) => {
       }
     });
 
+    // Allegati: SOLO checklist (sempre), TS mai
     const attachments = [];
     if (tipo === "CHECKLIST" && pdf) {
       attachments.push({
