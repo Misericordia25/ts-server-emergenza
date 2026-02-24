@@ -50,7 +50,7 @@ function meseFolder(data) {
   return mesi[new Date(data).getMonth()];
 }
 
-async function buildTree(drive, societa, modulo, tipo, data) {
+async function buildTree(drive, societa, modulo, data) {
   const rootId = ROOTS[societa];
   if (!rootId) throw new Error("Società non riconosciuta");
 
@@ -61,23 +61,8 @@ async function buildTree(drive, societa, modulo, tipo, data) {
   const modId  = await getOrCreateFolder(drive, modulo, annoId);
   const meseId = await getOrCreateFolder(drive, mese, modId);
 
-  // 👉 CASO TS
-  if (tipo === "TS") {
-    const pdfFolderId   = await getOrCreateFolder(drive, "PDF", meseId);
-    const excelFolderId = await getOrCreateFolder(drive, "EXCEL", meseId);
-
-    return {
-      pdfFolderId,
-      excelFolderId
-    };
-  }
-
-  // 👉 CASO CHECKLIST
-  return {
-    pdfFolderId: meseId
-  };
+  return meseId;
 }
-
 
 /* =====================================================
    HANDLER
@@ -91,17 +76,17 @@ exports.handler = async (event) => {
       modulo,
       tipo,               // "TS" | "CHECKLIST"
       data_servizio,      // YYYY-MM-DD
-      deposito_drive,     // true | false  (FLAG UNICO DEFINITIVO)
-      email,              // { to:[], cc:[] }
-      pdf,                // { name, data(base64) }
-      excel               // opzionale (TS)
+      deposito_drive,
+      email,
+      pdf,
+      excel
     } = JSON.parse(event.body);
 
     if (!societa || !modulo || !tipo || !data_servizio)
       throw new Error("Parametri obbligatori mancanti");
 
     /* =====================================================
-       AUTH GOOGLE (usata SOLO se deposito_drive === true)
+       AUTH GOOGLE
     ===================================================== */
     let drive = null;
     if (deposito_drive === true) {
@@ -115,36 +100,53 @@ exports.handler = async (event) => {
     }
 
     /* =====================================================
-       UPLOAD DRIVE (SOLO SE DEFINITIVO)
+       UPLOAD DRIVE
     ===================================================== */
     let pdfLink = null;
     let excelLink = null;
 
     if (deposito_drive === true && drive) {
-     const folders = await buildTree(
-  drive,
-  societa,
-  modulo,
-  tipo,
-  data_servizio
-);
 
+      const meseId = await buildTree(
+        drive,
+        societa,
+        modulo,
+        data_servizio
+      );
+
+      let pdfParentId = meseId;
+      let excelParentId = meseId;
+
+      // Se TS → crea sottocartelle PDF ed EXCEL
+      if (tipo === "TS") {
+        pdfParentId   = await getOrCreateFolder(drive, "PDF", meseId);
+        excelParentId = await getOrCreateFolder(drive, "EXCEL", meseId);
+      }
+
+      // Upload PDF
       if (pdf) {
         const resPdf = await drive.files.create({
-requestBody: { name: pdf.name, parents: [folders.pdfFolderId] },
-
+          requestBody: {
+            name: pdf.name,
+            parents: [pdfParentId]
+          },
           media: {
             mimeType: "application/pdf",
             body: Buffer.from(pdf.data, "base64")
           },
           fields: "id"
         });
+
         pdfLink = `https://drive.google.com/file/d/${resPdf.data.id}/view`;
       }
 
+      // Upload Excel solo se TS
       if (tipo === "TS" && excel) {
         const resXls = await drive.files.create({
-requestBody: { name: excel.name, parents: [folders.excelFolderId] },
+          requestBody: {
+            name: excel.name,
+            parents: [excelParentId]
+          },
           media: {
             mimeType:
               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -152,6 +154,7 @@ requestBody: { name: excel.name, parents: [folders.excelFolderId] },
           },
           fields: "id"
         });
+
         excelLink = `https://drive.google.com/file/d/${resXls.data.id}/view`;
       }
     }
@@ -169,8 +172,8 @@ requestBody: { name: excel.name, parents: [folders.excelFolderId] },
       }
     });
 
-    // Allegati: SOLO checklist (sempre), TS mai
     const attachments = [];
+
     if (tipo === "CHECKLIST" && pdf) {
       attachments.push({
         filename: pdf.name,
